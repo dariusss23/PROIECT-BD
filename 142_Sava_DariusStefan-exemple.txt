@@ -1,0 +1,170 @@
+-- EXERCITIUL 12
+
+-- Formulati in limbaj natural si implementati 5 cereri SQL complexe ce vor utiliza, in ansamblul lor, urmatoarele elemente:
+--    a) subcereri sincronizate in care intervin cel putin 3 tabele
+--    b) subcereri nesincronizate in clauza FROM
+--    c) grupari de date, functii grup, filtrare la nivel de grupuri cu subcereri nesincronizate (in clauza de HAVING)
+--    d) ordonari si utilizarea functiilor NVL si DECODE (in cadrul aceleiasi cereri)
+--    e) utilizarea a cel putin 2 functii pe siruri de caractere, 2 functii pe date calendaristice, a cel putin unei expresii CASE
+--    f) utilizarea a cel puțin 1 bloc de cerere (clauza WITH)
+
+---------------------------------------
+
+
+-- c) + d)
+-- sa se fiseaza echipele care au un numar de angajati mai mare decat media
+-- echipelor si marcheaza daca bugetul este „mare” (>22.000.000), 
+-- „mediu” sau „mic” folosind DECODE, afisand si numarul de angajati (dacă e NULL, afiseaza 0).
+
+SELECT E.nume,
+       NVL(E.nr_angajati, 0) AS nr_angajati,
+       DECODE(
+         SIGN(E.buget - 22000000),
+         1, 'mare',
+         0, 'mediu',
+         -1, 'mic'
+       ) AS categorie_buget
+FROM ECHIPA_F1 E
+GROUP BY E.nume, E.nr_angajati, E.buget
+HAVING E.nr_angajati>(
+  SELECT AVG(nr_angajati) FROM ECHIPA_F1
+);
+
+
+-- e)
+-- sa se afiseaze pentru fiecare pilot numele complet, o prescurtare a prenumelui,
+-- varsta calculata in ani intregi di o clasificare
+-- simplificat in functie de numarul de titluri obtinute.
+
+SELECT 
+    P.nume || ' ' || P.prenume AS nume_complet,
+    SUBSTR(P.nume, 1, 1) || '.' || SUBSTR(P.prenume, 1, 1) AS prescurtare_prenume,
+    TRUNC(MONTHS_BETWEEN(SYSDATE, P.data_nastere)/12) AS varsta,
+    P.titluri,
+    CASE 
+        WHEN P.titluri >= 3 THEN 'Campion Experimentat'
+        WHEN P.titluri BETWEEN 1 AND 2 THEN 'Pilot Promitator'
+        ELSE 'Novice'
+    END AS clasificare
+FROM PILOT_F1 P;
+
+
+-- f) 
+-- sa se afiseaze echipele care au primit sponsorizari totale mai mari de 200000.
+
+WITH sponsorizari AS (
+    SELECT ES.id_echipa, SUM(S.contributie_financiara) AS total
+    FROM ECHIPA_SPONSOR_F1 ES
+    JOIN SPONSOR_F1 S ON ES.id_sponsor=S.id_sponsor
+    GROUP BY ES.id_echipa
+)
+SELECT E.nume AS echipa,
+       S.total AS sponsorizare_totala
+FROM sponsorizari S
+JOIN ECHIPA_F1 E ON E.id_echipa=S.id_echipa
+WHERE S.total>200000;
+
+
+--a)
+--sa se afiseaze numele pilotului și nationalitatea sa, doar daca
+--a participat la o cursa desfasurata pe un circuit care
+-- are mai mult de 15 viraje si o capacitate de public
+-- mai mare decat cea a arenei asociate circuitului „Monaco”.
+
+SELECT P.nume || ' ' || P.prenume AS pilot,
+       P.nationalitate
+FROM PILOT_F1 P
+WHERE EXISTS (
+    SELECT 1
+    FROM PILOT_CURSA_F1 PC
+    JOIN CURSA_F1 C ON PC.id_cursa=C.id_cursa
+    JOIN CIRCUIT_F1 CI ON C.id_circuit=CI.id_circuit
+    JOIN ARENA_F1 A ON CI.id_arena=A.id_arena
+    WHERE PC.id_pilot=P.id_pilot
+      AND CI.viraje > 15
+      AND A.capacitate > (
+          SELECT A2.capacitate
+          FROM CIRCUIT_F1 CI2
+          JOIN ARENA_F1 A2 ON CI2.id_arena=A2.id_arena
+          WHERE CI2.nume='Monaco'
+      )
+);
+
+
+--b)
+--sa se afiseaze pentru fiecare pilot numele complet, salariul, numele echipei
+--din care face parte si media salariilor tuturor pilotilor
+ 
+SELECT 
+    P.nume || ' ' || P.prenume AS nume_complet,
+    P.salariu,
+    E.nume AS nume_echipa,
+    avg_salariu.medie_salariu_piloti
+FROM PILOT_F1 P,
+     ECHIPA_F1 E,
+     (SELECT AVG(salariu) AS medie_salariu_piloti FROM PILOT_F1) avg_salariu
+WHERE P.id_echipa=E.id_echipa
+ORDER BY P.nume;
+
+
+---------------------------------------
+
+
+-- EXERCITIUL 13
+
+-- Implementarea a 3 operaTii de actualizare Si de suprimare a datelor utilizand subcereri.
+
+
+---------------------------------------
+
+-- sa se actualizeaze salariul pilotilor care au salariul mai mic decat media salariilor
+-- din echipa lor, marindu-l la media respectiva.
+
+UPDATE PILOT_F1 P
+SET salariu = (
+    SELECT AVG(salariu)
+    FROM PILOT_F1
+    WHERE id_echipa=P.id_echipa
+)
+WHERE salariu<(
+    SELECT AVG(salariu)
+    FROM PILOT_F1
+    WHERE id_echipa=P.id_echipa
+);
+
+-- sa se marcheze toate biletele tip 'Silver' la curse desfasurate
+-- pe un circuit din 'Monaco' ca fiind 'VANDUT'
+
+UPDATE BILET_F1 B
+SET stare = 'VANDUT'
+WHERE id_tip_bilet = (
+    SELECT id_tip_bilet
+    FROM TIP_BILET_F1
+    WHERE tip='Silver'
+)
+AND id_cursa IN (
+    SELECT id_cursa
+    FROM CURSA_F1
+    WHERE id_circuit IN (
+        SELECT id_circuit
+        FROM CIRCUIT_F1
+        WHERE locatie='Monaco'
+    )
+);
+
+-- sa se sterga vehiculele care au un model cu puterea sub medie
+-- si apartin echipelor cu buget mai mic decat media, dar numai 
+-- daca pretul vehiculului este mai mare de 1000000
+
+DELETE FROM VEHICUL_F1 V
+WHERE V.id_model IN (
+    SELECT M.id_model
+    FROM MODEL_F1 M
+    WHERE M.putere<(SELECT AVG(putere) FROM MODEL_F1)
+)
+AND V.id_echipa IN (
+    SELECT E.id_echipa
+    FROM ECHIPA_F1 E
+    WHERE E.buget<(SELECT AVG(buget) FROM ECHIPA_F1)
+)
+AND V.pret>1000000;
