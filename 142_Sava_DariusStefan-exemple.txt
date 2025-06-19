@@ -112,7 +112,7 @@ ORDER BY P.nume;
 
 -- EXERCITIUL 13
 
--- Implementarea a 3 operaTii de actualizare Si de suprimare a datelor utilizand subcereri.
+-- Implementarea a 3 operatii de actualizare Si de suprimare a datelor utilizand subcereri.
 
 
 ---------------------------------------
@@ -168,3 +168,163 @@ AND V.id_echipa IN (
     WHERE E.buget<(SELECT AVG(buget) FROM ECHIPA_F1)
 )
 AND V.pret>1000000;
+
+
+---------------------------------------
+
+-- Exercitiul 14
+
+-- Crearea unei vizualizari complexe. Dati un exemplu de operatie LMD permisa
+-- pe vizualizarea respectiva si un exemplu de operatie LMD nepermisa
+
+---------------------------------------
+
+DROP VIEW V_PILOTI_ECHIPA_STAT;
+
+CREATE OR REPLACE VIEW V_PILOTI_ECHIPA_STAT AS
+SELECT 
+    P.id_pilot,
+    P.nume || ' ' || P.prenume AS nume_pilot,
+    E.nume AS echipa,
+    P.salariu,
+    ROUND(AVG(P2.salariu), 2) AS salariu_mediu_echipa,
+    CASE 
+        WHEN P.salariu < AVG(P2.salariu) THEN 'Sub medie'
+        WHEN P.salariu > AVG(P2.salariu) THEN 'Peste medie'
+        ELSE 'Egal cu media'
+    END AS comparatie
+FROM PILOT_F1 P
+JOIN ECHIPA_F1 E ON P.id_echipa = E.id_echipa
+JOIN PILOT_F1 P2 ON P2.id_echipa = P.id_echipa
+GROUP BY P.id_pilot, P.nume, P.prenume, E.nume, P.salariu;
+
+SELECT * FROM V_PILOTI_ECHIPA_STAT;
+
+SELECT * 
+FROM V_PILOTI_ECHIPA_STAT
+WHERE comparatie = 'Sub medie';
+
+-- OPERATIE LMD NEPERMISA :
+-- UPDATE
+-- Vizualizarea contine GROUP BY
+-- Aceste coloane sunt calculate cu functii de agregare
+
+UPDATE V_PILOTI_ECHIPA_STAT
+SET salariu_mediu_echipa = 30000000
+WHERE nume_pilot = 'Carlos Sainz';
+
+
+---------------------------------------
+
+
+-- Exercitiul 15 
+
+-- Formulati in limbaj natural si implementati in SQL : o cerere ce utilizeaza operatia outer-join
+-- pe minimum 4 tabele, o cerere ce utilizeaa operatia division si o cerere care implementeaza analiza top-n
+
+
+---------------------------------------
+
+-- sa se afiseze pilotii care au participat la toate cursele din Italia
+-- DIVISION
+
+SELECT P.id_pilot, P.nume || ' ' || P.prenume as nume_pilot
+FROM PILOT_F1 P
+WHERE NOT EXISTS (
+    SELECT C.id_cursa
+    FROM CURSA_F1 C
+    JOIN CIRCUIT_F1 CI ON C.id_circuit = CI.id_circuit
+    WHERE CI.locatie = 'Italy'
+    AND NOT EXISTS (
+        SELECT 1
+        FROM PILOT_CURSA_F1 PC
+        WHERE PC.id_pilot = P.id_pilot
+          AND PC.id_cursa = C.id_cursa
+    )
+);
+
+
+-- sa se afiseez primii 5 piloti cu cele mai multe curse Grand Prix
+-- TOP-N
+
+SELECT ROWNUM AS pozitie,
+       pilot,
+       curse_grand_prix
+FROM (
+    SELECT 
+        P.nume || ' ' || P.prenume AS pilot,
+        COUNT(*) AS curse_grand_prix
+    FROM PILOT_F1 P
+    JOIN PILOT_CURSA_F1 PC ON P.id_pilot = PC.id_pilot
+    JOIN CURSA_F1 C ON PC.id_cursa = C.id_cursa
+    WHERE C.tip_cursa = 'Grand Prix'
+    GROUP BY P.nume, P.prenume
+    ORDER BY curse_grand_prix DESC
+)
+WHERE ROWNUM <= 5;
+
+-- sa se afiseze toti pilotii, impreună cu:
+-- numele echipei din care fac parte (chiar dacă nu au echipa),
+-- cursele la care au participat (dacă exisat),
+-- circuitul aferent fiecarei curse (dacă exista),
+-- locatia circuitului
+-- OUTER-JOIN
+
+SELECT 
+    P.nume || ' ' || P.prenume AS pilot,
+    E.nume AS echipa,
+    C.id_cursa,
+    CI.nume AS circuit,
+    CI.locatie
+FROM PILOT_F1 P
+LEFT OUTER JOIN ECHIPA_F1 E ON P.id_echipa = E.id_echipa
+LEFT OUTER JOIN PILOT_CURSA_F1 PC ON P.id_pilot = PC.id_pilot
+LEFT OUTER JOIN CURSA_F1 C ON PC.id_cursa = C.id_cursa
+LEFT OUTER JOIN CIRCUIT_F1 CI ON C.id_circuit = CI.id_circuit
+ORDER BY P.nume;
+
+
+---------------------------------------
+
+-- Exercitiul 16
+
+-- Optimizarea unei cereri, aplicand regulile de optimizare ce deriva din proprietatile operatorilor algebrei
+-- relationale. Cererea va fi exprimata prin expresie algebrica, arbore algebric si limbaj (SQL), atat anterior
+-- cat si ulterior optimizarii
+
+
+---------------------------------------
+
+-- mai multe detalii in fisierul DOCS
+
+
+-- sa se afiseze numele echipei si al pilotului pentru pilotii care au castigat cel putin un titlu si fac
+-- parte dintr-o echipa cu buget mai mare decat media bugetelor si echipelor
+
+SELECT E.nume AS nume_echipa, 
+       P.nume AS nume_pilot
+FROM 
+    ECHIPA_F1 E
+JOIN PILOT_F1 P ON E.id_echipa = P.id_echipa
+WHERE P.titluri > 0
+  AND E.buget > (SELECT AVG(buget) FROM ECHIPA_F1);
+
+
+-- CEREREA DUPA OPTMIIZARE
+
+WITH media AS (
+    SELECT AVG(buget) AS avg_buget FROM ECHIPA_F1
+)
+
+SELECT E.nume AS nume_echipa, P.nume AS nume_pilot
+FROM ECHIPA_F1 E
+JOIN PILOT_F1 P ON E.id_echipa = P.id_echipa
+WHERE E.buget > (SELECT avg_buget FROM media)
+  AND P.titluri > 0;
+
+
+---------------------------------------
+
+-- Exercitiul 17
+
+-- toate normalizariile sunt in document (docs)
